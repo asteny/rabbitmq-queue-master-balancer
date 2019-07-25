@@ -93,11 +93,10 @@ def nodes_dict(nodes_info_data, vhost_names: list) -> Dict[str, List]:
     :param vhost_names list of vhosts
     :return: dict: Key is a name of rabbit node, Value is empty list
     '''
-    d = dict.fromkeys(
-        (vhost for vhost in vhost_names)
-    )
+    temp_dict = dict.fromkeys((vhost for vhost in vhost_names))
+
     nodes_dictionary = dict.fromkeys(
-        (node['name'] for node in nodes_info_data), d
+        (node['name'] for node in nodes_info_data), temp_dict
     )
     return nodes_dictionary
 
