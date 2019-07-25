@@ -204,10 +204,11 @@ if __name__ == '__main__':
             pass
             # TODO: call def relocate
         else:
-            for node in calculated_queues.items():
-                log.info(
-                    'Node {} is a master of {} queues'.format(node[0], node[1])
-                )
+            for node, queue_number in calculated_queues.items():
+                log.info('Node {} is a master of {} queues'.format(
+                    node,
+                    queue_number
+                ))
             log.info(
                 "It's a dry run. You need relocate from %r to %r %r queues",
                 max_queues_node,
