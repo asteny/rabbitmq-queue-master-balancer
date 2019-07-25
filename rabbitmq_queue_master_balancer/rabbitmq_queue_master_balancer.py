@@ -2,6 +2,7 @@
 
 import logging
 import time
+from typing import Dict, List
 
 from configargparse import ArgumentParser
 from prettylog import basic_config, LogFormat
@@ -44,16 +45,20 @@ parser.add_argument(
 parser.add_argument(
     '--dry-run',
     action="store_true",
-    help='Show how many queues will move from one node (with a maximum queues) \
-    to another (with a minimum queues)'
+    help=(
+        'Show how many queues will move from one node (with a maximum queues)'
+        'to another (with a minimum queues)'
+    )
 )
 
 parser.add_argument(
     '--queue-delta',
     type=int,
     default=3,
-    help='Reasonable delta of queues between max and min numbers of queues \
-    on node when script do nothing'
+    help=(
+        'Reasonable delta of queues between max and min numbers of queues'
+        'on node when script do nothing'
+    )
 )
 
 parser.add_argument(
@@ -68,7 +73,7 @@ arguments = parser.parse_args()
 log = logging.getLogger()
 
 
-def wait_for_client(client):
+def wait_for_client(client) -> bool:
     '''
     :param client:
     :return: bool
@@ -82,21 +87,24 @@ def wait_for_client(client):
         wait_for_client(client)
 
 
-def nodes_dict(nodes_info_data, vhost_names: list):
+def nodes_dict(nodes_info_data, vhost_names: list) -> Dict[str, List]:
     '''
     :param client
     :param vhost_names list of vhosts
     :return: dict: Key is a name of rabbit node, Value is empty list
     '''
+    d = dict.fromkeys(
+        (vhost for vhost in vhost_names)
+    )
     nodes_dictionary = dict.fromkeys(
-        (node['name'] for node in nodes_info_data), dict.fromkeys(
-            (vhost for vhost in vhost_names)
-        )
+        (node['name'] for node in nodes_info_data), d
     )
     return nodes_dictionary
 
 
-def master_nodes_queues(nodes_dict: dict, vhost_names: list):
+def master_nodes_queues(
+        nodes_dict: dict, vhost_names: list
+) -> Dict[str, Dict[str, List]]:
     '''
     :param queues_data: list of dicts with all queues info
     :param vhost_names list of vhosts
@@ -106,7 +114,7 @@ def master_nodes_queues(nodes_dict: dict, vhost_names: list):
     master_nodes_queues_dict = {}
 
     queues_data = client.get_queues()
-    for node in nodes_dict.items():
+    for node in nodes_dict.keys():
 
         vhost_dict = {}
 
@@ -114,17 +122,16 @@ def master_nodes_queues(nodes_dict: dict, vhost_names: list):
             list_queues = []
 
             for queue in queues_data:
-                if node[0] == queue['node'] and queue['vhost'] == vhost:
+                if node == queue['node'] and queue['vhost'] == vhost:
                     list_queues.append(queue['name'])
 
             vhost_dict.update({vhost: list_queues})
-
-            master_nodes_queues_dict.update({node[0]: vhost_dict})
+            master_nodes_queues_dict.update({node: vhost_dict})
 
     return master_nodes_queues_dict
 
 
-def calculate_queues(master_nodes_queues_dict: dict):
+def calculate_queues(master_nodes_queues_dict: dict) -> Dict[str, int]:
     '''
     :param master_nodes_queues_dict: dict
     :return: dict {node1: number_queues, node2: number_queues,}
@@ -132,22 +139,23 @@ def calculate_queues(master_nodes_queues_dict: dict):
 
     calculated_dict = {}
 
-    for node in master_nodes_queues_dict.items():
-        counter = 0
-        for i in node[1].values():
-            counter += len(i)
-        calculated_dict.update({node[0]: counter})
+    for node, vhost in master_nodes_queues_dict.items():
+        counter = sum(map(len, vhost.values()))
+        calculated_dict[node] = counter
+
     return calculated_dict
 
 
-def is_relocate(max_queues: int, min_queues: int):
+def is_relocate(max_queues: int,
+                min_queues: int,
+                queue_delta: int = arguments.queue_delta
+                ) -> bool:
     '''
     :param min_queues: int
     :param max_queues: int
     :return: bool
     '''
-    if max_queues - min_queues > arguments.queue_delta:
-        return True
+    return max_queues - min_queues > queue_delta
 
 
 def relocate():
@@ -175,15 +183,15 @@ if __name__ == '__main__':
 
     nodes_info_data = client.get_nodes()
 
-    log.debug('{} {}'.format('Nodes info: ', nodes_info_data))
+    log.debug('Nodes info: %r', nodes_info_data)
 
     vhost_names = client.get_vhost_names()
-    log.debug('{} {}'.format('Vhost names: ', vhost_names))
+    log.debug('Vhost names: %r', vhost_names)
 
     master_nodes_queues_dict = master_nodes_queues(
         nodes_dict(nodes_info_data, vhost_names), vhost_names
     )
-    log.debug('{} {}'.format('Master nodes info: ', master_nodes_queues_dict))
+    log.debug('Master nodes info: %r', master_nodes_queues_dict)
 
     calculated_queues = calculate_queues(master_nodes_queues_dict)
 
@@ -201,9 +209,9 @@ if __name__ == '__main__':
                 log.info(
                     'Node {} is a master of {} queues'.format(node[0], node[1])
                 )
-            log.info('It\'s a dry run. You need relocate from {} to {} {} \
-                     queues'.format(
+            log.info(
+                "It's a dry run. You need relocate from %r to %r %r queues",
                 max_queues_node,
                 min_queues_node,
                 arguments.relocate_queues
-            ))
+            )
