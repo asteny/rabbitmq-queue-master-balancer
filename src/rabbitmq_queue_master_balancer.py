@@ -43,6 +43,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    '--policy-name',
+    type=str,
+    default='queue_master_balancer',
+    help='Policy name for relocate queues'
+)
+
+parser.add_argument(
     '--dry-run',
     action="store_true",
     help=(
@@ -59,13 +66,6 @@ parser.add_argument(
         'Reasonable delta of queues between max and min numbers of queues'
         'on node when script do nothing'
     )
-)
-
-parser.add_argument(
-    '--relocate-queues',
-    type=int,
-    default=2,
-    help='How many queues will relocate in one time'
 )
 
 arguments = parser.parse_args()
@@ -145,6 +145,22 @@ def calculate_queues(master_nodes_queues_dict: dict) -> Dict[str, int]:
     return calculated_dict
 
 
+def calculate_vhost(max_master_dict: dict) -> Dict[str, int]:
+    '''
+    :param max_master_dict:
+    :return: dict {vhost, number_queues}
+    '''
+    calculated_dict = {}
+    for vhost, queues in max_master_dict.items():
+        try:
+            counter = max(map(len, queues))
+            calculated_dict[vhost] = counter
+        except ValueError:
+            pass
+    return calculated_dict
+
+
+
 def is_relocate(max_queues: int,
                 min_queues: int,
                 queue_delta: int = arguments.queue_delta
@@ -157,14 +173,39 @@ def is_relocate(max_queues: int,
     return max_queues - min_queues > queue_delta
 
 
-def relocate():
-    pass
-    # TODO
+def relocate_policy(max_master_dict: dict,
+                    max_queues_vhost: str,
+                    min_queues_node: str,
+                    policy_name: str
+                    ):
+    '''
+    :param max_master_dict:
+    :return: status code
+    '''
+    queue = max_master_dict[max_queues_vhost][0]
+    log.debug('Queue for relocate is %r', queue)
+
+    definition_dict = {'ha-mode': 'nodes',
+                       "ha-params": min_queues_node.split(' ')
+                       }
+    dict_params = {'pattern': queue,
+                   'definition': definition_dict,
+                   'priority': 999,
+                   "apply-to": "queues"
+                   }
+    log.debug('Policy body dict is %r', dict_params)
+
+    client.create_policy(
+        vhost=max_queues_vhost,
+        policy_name=policy_name,
+        **dict_params
+
+    )
 
 
 def check_relocate_status():
-    pass
-    # TODO
+    time.sleep(60)
+    # TODO check synchronize status of queue
 
 
 if __name__ == '__main__':
@@ -196,13 +237,26 @@ if __name__ == '__main__':
 
     min_queues_node = min(calculated_queues, key=calculated_queues.get)
     max_queues_node = max(calculated_queues, key=calculated_queues.get)
+
     min_queues = calculated_queues.get(min_queues_node)
     max_queues = calculated_queues.get(max_queues_node)
 
+    max_master_dict = master_nodes_queues_dict[max_queues_node]
+    calculate_vhost = calculate_vhost(max_master_dict)
+    max_queues_vhost = max(calculate_vhost, key=calculate_vhost.get)
+
     if is_relocate(max_queues, min_queues):
         if not arguments.dry_run:
-            pass
-            # TODO: call def relocate
+
+                log.debug('Creating relocate policy')
+                relocate_policy(
+                    max_master_dict,
+                    max_queues_vhost,
+                    min_queues_node,
+                    arguments.policy_name
+                )
+                check_relocate_status()
+                client.delete_policy(max_queues_vhost, arguments.policy_name)
         else:
             for node, queue_number in calculated_queues.items():
                 log.info('Node {} is a master of {} queues'.format(
@@ -210,8 +264,9 @@ if __name__ == '__main__':
                     queue_number
                 ))
             log.info(
-                "It's a dry run. You need relocate from %r to %r %r queues",
+                "It's a dry run. You need relocate from %r to %r queues",
                 max_queues_node,
-                min_queues_node,
-                arguments.relocate_queues
+                min_queues_node
             )
+    else:
+        log.info('Nothing to do')
