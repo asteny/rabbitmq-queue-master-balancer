@@ -224,17 +224,11 @@ def is_queue_running(client, vhost: str, queue: str) -> bool:
 
 
 def relocate_queue(client,
-                   max_queues: int,
-                   min_queues: int,
                    max_master_dict: dict,
                    max_queues_vhost: str,
                    min_queues_node: str,
-                   queue_delta: int,
                    sleep_time: int
                    ):
-    if not is_relocate(max_queues, min_queues, queue_delta):
-        log.info('Nothing to do')
-        return None
 
     queue_for_relocate = max_master_dict[max_queues_vhost][0]
     log.debug('Queue for relocate is %r', queue_for_relocate)
@@ -319,18 +313,18 @@ if __name__ == '__main__':
                 )
             sys.exit(0)
 
-        relocate_queue(
-            client,
-            max_queues,
-            min_queues,
-            max_master_dict,
-            max_queues_vhost,
-            min_queues_node,
-            sleep_time=arguments.sleep_time_action,
-            queue_delta=arguments.queue_delta
+        if is_relocate(max_queues, min_queues, arguments.queue_delta):
+            relocate_queue(
+                client,
+                max_master_dict,
+                max_queues_vhost,
+                min_queues_node,
+                sleep_time=arguments.sleep_time_action,
             )
-        log.debug(
-            'Queue balancer sleeping for %r seconds',
-            arguments.sleep_time
-        )
-        time.sleep(arguments.sleep_time)
+            log.debug(
+                'Queue balancer sleeping for %r seconds',
+                arguments.sleep_time
+            )
+            time.sleep(arguments.sleep_time)
+        else:
+            log.info('Nothing to do')
