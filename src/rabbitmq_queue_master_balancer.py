@@ -138,8 +138,8 @@ def master_nodes_queues(
                 if node == queue['node'] and queue['vhost'] == vhost:
                     list_queues.append(queue['name'])
 
-            vhost_dict.update({vhost: list_queues})
-            master_nodes_queues_dict.update({node: vhost_dict})
+            vhost_dict[vhost] = list_queues
+            master_nodes_queues_dict[node] = vhost_dict
 
     return master_nodes_queues_dict
 
@@ -165,18 +165,17 @@ def calculate_vhost(max_master_dict: dict) -> Dict[str, int]:
     :return: dict {vhost, number_queues}
     '''
     calculated_dict = {}
+
     for vhost, queues in max_master_dict.items():
-        try:
-            counter = max(map(len, queues))
-            calculated_dict[vhost] = counter
-        except ValueError:
-            pass
+        if not queues:
+            continue
+        calculated_dict[vhost] = max(map(len, queues))
     return calculated_dict
 
 
 def is_relocate(max_queues: int,
                 min_queues: int,
-                queue_delta: int = arguments.queue_delta
+                queue_delta: int
                 ) -> bool:
     '''
     :param min_queues: int
@@ -210,7 +209,8 @@ def relocate_policy(queue_for_relocate: str,
 
 
 def is_queue_running(client, vhost: str, queue: str) -> bool:
-    while True:
+    state = None
+    while state != 'running':
         try:
             state = client.get_queue(vhost, queue)['state']
             log.debug('Queue %r has state %r', queue, state)
@@ -219,7 +219,7 @@ def is_queue_running(client, vhost: str, queue: str) -> bool:
             else:
                 return True
         except KeyError:
-            log.debug('RabbitMQ API not ready to answer')
+            log.exception('RabbitMQ API not ready to answer')
 
 
 def relocate_queue(client,
@@ -228,43 +228,45 @@ def relocate_queue(client,
                    max_master_dict: dict,
                    max_queues_vhost: str,
                    min_queues_node: str,
+                   queue_delta: int,
                    sleep_time: int
                    ):
-    if is_relocate(max_queues, min_queues):
-        queue_for_relocate = max_master_dict[max_queues_vhost][0]
-        log.debug('Queue for relocate is %r', queue_for_relocate)
-        log.debug('Creating relocate policy')
-        relocate_policy(
-            queue_for_relocate,
-            max_queues_vhost,
-            min_queues_node,
-            arguments.policy_name
-        )
-        time.sleep(sleep_time)
-        client.queue_action(
-            max_queues_vhost,
-            queue_for_relocate,
-            action='sync'
-        )
-        time.sleep(sleep_time)
-        is_queue_running(client, max_queues_vhost, queue_for_relocate)
-        client.queue_action(
-            max_queues_vhost,
-            queue_for_relocate,
-            action='sync'
-        )
-        time.sleep(sleep_time)
-        client.delete_policy(max_queues_vhost, arguments.policy_name)
-        time.sleep(sleep_time)
-        client.queue_action(
-            max_queues_vhost,
-            queue_for_relocate,
-            action='sync'
-        )
-        time.sleep(sleep_time)
-        is_queue_running(client, max_queues_vhost, queue_for_relocate)
-    else:
+    if not is_relocate(max_queues, min_queues, queue_delta):
         log.info('Nothing to do')
+        return None
+
+    queue_for_relocate = max_master_dict[max_queues_vhost][0]
+    log.debug('Queue for relocate is %r', queue_for_relocate)
+    log.debug('Creating relocate policy')
+    relocate_policy(
+        queue_for_relocate,
+        max_queues_vhost,
+        min_queues_node,
+        arguments.policy_name
+    )
+    time.sleep(sleep_time)
+    client.queue_action(
+        max_queues_vhost,
+        queue_for_relocate,
+        action='sync'
+    )
+    time.sleep(sleep_time)
+    is_queue_running(client, max_queues_vhost, queue_for_relocate)
+    client.queue_action(
+        max_queues_vhost,
+        queue_for_relocate,
+        action='sync'
+    )
+    time.sleep(sleep_time)
+    client.delete_policy(max_queues_vhost, arguments.policy_name)
+    time.sleep(sleep_time)
+    client.queue_action(
+        max_queues_vhost,
+        queue_for_relocate,
+        action='sync'
+    )
+    time.sleep(sleep_time)
+    is_queue_running(client, max_queues_vhost, queue_for_relocate)
 
 
 if __name__ == '__main__':
@@ -309,10 +311,11 @@ if __name__ == '__main__':
 
         if arguments.dry_run:
             for node, queue_number in calculated_queues.items():
-                log.info('Node {} is a master of {} queues'.format(
+                log.info(
+                    'Node %r is a master of %r queues',
                     node,
                     queue_number
-                ))
+                )
             log.info(
                 "It's a dry run. You need relocate from %r to %r queues",
                 max_queues_node,
@@ -327,7 +330,8 @@ if __name__ == '__main__':
             max_master_dict,
             max_queues_vhost,
             min_queues_node,
-            sleep_time=arguments.sleep_time_action
+            sleep_time=arguments.sleep_time_action,
+            queue_delta=arguments.queue_delta
             )
         log.debug(
             'Queue balancer sleeping for %r seconds',
