@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import sys
 import time
 from typing import Dict, List
 
@@ -316,12 +317,7 @@ if __name__ == '__main__':
                     node,
                     queue_number
                 )
-            log.info(
-                "It's a dry run. You need relocate from %r to %r queues",
-                max_queues_node,
-                min_queues_node
-            )
-            exit()
+            sys.exit(0)
 
         relocate_queue(
             client,
