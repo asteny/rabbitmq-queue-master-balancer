@@ -305,6 +305,7 @@ if __name__ == '__main__':
         max_queues_vhost = max(calculated_vhost, key=calculated_vhost.get)
 
         if arguments.dry_run:
+            log.info("It's a dry run. Calculate queues...")
             for node, queue_number in calculated_queues.items():
                 log.info(
                     'Node %r is a master of %r queues',
